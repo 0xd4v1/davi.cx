@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>davi.cx</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #000;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .header {
+            margin-bottom: 60px;
+        }
+        
+        .title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .post {
+            margin-bottom: 40px;
+            border-bottom: 1px solid #222;
+            padding-bottom: 30px;
+        }
+        
+        .post:last-child {
+            border-bottom: none;
+        }
+        
+        .post-title {
+            font-size: 18px;
+            color: #fff;
+            text-decoration: none;
+            display: block;
+        }
+        
+        .post-title:hover {
+            color: #ccc;
+        }
+        
+        @media (max-width: 600px) {
+            body {
+                padding: 30px 15px;
+            }
+            
+            .title {
+                font-size: 24px;
+            }
+            
+            .post-title {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 class="title">davi.cx</h1>
+        <p class="subtitle">security research • bug hunting</p>
+    </div>
+    
+    <main>
+        <article class="post">
+            <a href="warc_blogpost.html" class="post-title">Honey, I Shrunk the Archive </a>
+        </article>
+        
+        <article class="post">
+            <a href="#" class="post-title">IN PROGRESS</a>
+        </article>
+    </main>
+</body>
+</html>
