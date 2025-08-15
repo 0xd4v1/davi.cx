@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Honey, I Shrunk the Archive — Optimizing WARC for Efficient Change Tracking</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000; color: #fff;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1.7;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    .header { margin-bottom: 56px; }
+    .home-link {
+      font-size: 14px; color: #8a8a8a; text-decoration: none;
+      margin-bottom: 16px; display: inline-block;
+    }
+    .home-link:hover { color: #fff; }
+    .post-title {
+      font-size: 28px; font-weight: 700;
+      color: #fff; margin-bottom: 24px;
+    }
+    .lede { color:#cfcfcf; margin-bottom: 28px; }
+    .content p { margin: 14px 0 18px; color:#cfcfcf; }
+    .content h2 {
+      font-size: 20px; color: #fff;
+      margin: 42px 0 16px; font-weight: 700;
+      border-left: 3px solid #333; padding-left: 12px;
+    }
+    .content h3 {
+      font-size: 16px; color: #fff;
+      margin: 28px 0 12px; font-weight: 700;
+    }
+    .content ul, .content ol { margin: 10px 0 18px 28px; }
+    .content li { margin: 6px 0; color:#cfcfcf; }
+    pre {
+      background:#0c0c0c; border:1px solid #222;
+      padding:16px; overflow-x:auto; border-radius:8px;
+      margin: 18px 0 22px;
+      color:#d7d7d7; font-size:13px; line-height:1.5;
+    }
+    code { background:#0c0c0c; border:1px solid #222; padding:2px 6px; border-radius:6px; }
+    .figure { margin: 26px 0; border:1px solid #222; border-radius:10px; overflow:hidden; background:#0b0b0b; }
+    .figure figcaption { font-size:12px; color:#9a9a9a; padding:10px 12px; border-top:1px solid #1e1e1e; }
+    .svgwrap { display:block; width:100%; background:#0b0b0b; }
+    .note { color:#9a9a9a; font-size:13px; }
+    .refs h3 { margin-top: 40px; }
+    .refs a { color:#9ad; text-decoration: none; }
+    .refs a:hover { text-decoration: underline; }
+    .back-link {
+      margin-top: 56px; padding-top: 26px;
+      border-top: 1px solid #222;
+    }
+    .back-link a {
+      color: #8a8a8a; text-decoration: none; font-size: 14px;
+    }
+    .back-link a:hover { color: #fff; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <a href="index.html" class="home-link">← davi.cx</a>
+    <h1 class="post-title">Honey, I Shrunk the Archive</h1>
+    <p class="lede">
+      I wanted a reliable way to spot small, meaningful changes across websites I monitor for bug bounty —
+      without filling disks with duplicate content. This is a practical, end-to-end guide to making WARC storage compact,
+      fast, and still faithful enough to rebuild any capture byte-for-byte when you need proof.
+    </p>
+  </header>
+
+  <main class="content">
+    <h2>What WARC gives you — and why it inflates fast</h2>
+    <p>
+      The WARC format (Web ARChive) stores request/response pairs with headers and payloads. It’s great for fidelity:
+      every capture is preserved exactly as it arrived. But at high frequency — for example, every 5 minutes —
+      you’ll store the same JavaScript, CSS, images, and even HTML many times. On top of that, volatile headers like
+      <code>Date</code>, <code>Set-Cookie</code>, or tracing IDs change on every request and make identical content
+      look different on paper.
+    </p>
+    <p>
+      Without optimization, archives become slow to query, expensive to store, and noisy to diff. The goal here
+      is to keep the strengths of WARC, while cutting size and making changes easy to find.
+    </p>
+
+    <figure class="figure">
+      <!-- Inline SVG: system overview -->
+      <svg class="svgwrap" viewBox="0 0 980 300" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <style>
+            .a{fill:#111;stroke:#2a2a2a;stroke-width:1.2;}
+            .b{fill:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;}
+            .c{fill:#0f0f0f;stroke:#2a2a2a;stroke-width:1.2;}
+            .arrow{stroke:#3a3a3a;stroke-width:2;marker-end:url(#m);}
+          </style>
+          <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <polygon points="0 0, 10 3, 0 6" fill="#3a3a3a"/>
+          </marker>
+        </defs>
+        <rect x="10" y="20" width="220" height="80" rx="10" class="a"/>
+        <text x="25" y="55" class="b">Raw captures</text>
+        <text x="25" y="78" class="b">HTTP request/response</text>
+
+        <line x1="230" y1="60" x2="300" y2="60" class="arrow"/>
+
+        <rect x="300" y="20" width="220" height="80" rx="10" class="a"/>
+        <text x="315" y="55" class="b">Normalization</text>
+        <text x="315" y="78" class="b">HTML/JS/CSS/JSON</text>
+
+        <line x1="520" y1="60" x2="590" y2="60" class="arrow"/>
+
+        <rect x="590" y="20" width="170" height="80" rx="10" class="a"/>
+        <text x="605" y="55" class="b">Hashes</text>
+        <text x="605" y="78" class="b">raw + normalized</text>
+
+        <line x1="675" y1="100" x2="675" y2="165" class="arrow"/>
+
+        <rect x="570" y="165" width="210" height="60" rx="10" class="c"/>
+        <text x="585" y="200" class="b">Dedup / Revisit Records</text>
+
+        <line x1="675" y1="225" x2="675" y2="260" class="arrow"/>
+
+        <rect x="470" y="260" width="410" height="30" rx="6" class="a"/>
+        <text x="485" y="280" class="b">Delta storage (base + patches) when similar</text>
+
+        <line x1="370" y1="100" x2="370" y2="165" class="arrow"/>
+        <rect x="260" y="165" width="220" height="60" rx="10" class="c"/>
+        <text x="275" y="200" class="b">CDXJ Index (URL, ts, digests, offsets)</text>
+      </svg>
+      <figcaption>System overview: normalize → hash → dedup/revisit → delta when similar → index for fast lookup.</figcaption>
+    </figure>
+
+    <h2>High-level goals</h2>
+    <ul>
+      <li><b>Integrity:</b> keep byte-accurate originals for proof and reprocessing.</li>
+      <li><b>Efficiency:</b> use normalized representations for change detection and reuse identical payloads.</li>
+      <li><b>Speed:</b> enable targeted retrieval with a compact index, avoiding full-file scans.</li>
+    </ul>
+
+    <h2>Segment by target and time</h2>
+    <p>
+      Avoid giant monolithic archives. Keep one directory per target and rotate files daily or hourly,
+      depending on your capture rate. Smaller files compress better, are easier to re-index, and isolate corruption.
+    </p>
+    <pre><code>example.com/
+  2025-08-15.warc.zst
+  2025-08-16.warc.zst
+another-target.com/
+  2025-08-15.warc.zst
+</code></pre>
+
+    <h2>Compression that respects throughput</h2>
+    <p>
+      Compression is a trade-off between CPU and size. Zstandard (<code>zstd</code>) gives good ratios and very fast
+      decompression. Use a low level during ingestion to keep up with the stream; periodically recompress your “cold”
+      WARCs at a higher level with a longer window to capture repeated content across segments.
+    </p>
+
+    <h2>Deduplication with payload digests</h2>
+    <p>
+      Compute two digests for every response body:
+    </p>
+    <ul>
+      <li><b>Raw digest</b> — cryptographic hash of the exact bytes captured.</li>
+      <li><b>Normalized digest</b> — cryptographic hash after canonicalization (explained next).</li>
+    </ul>
+    <p>
+      When a raw digest repeats, write a lightweight “revisit” record that points to the original payload instead of
+      storing duplicate bytes again. You still record the new timestamp and headers, but bodies are reused.
+    </p>
+
+    <h2>Canonicalization that makes diffs stable</h2>
+    <p>
+      Normalization converts content into a stable form so that trivial changes don’t create fake differences:
+    </p>
+    <ul>
+      <li><b>HTML:</b> remove comments and tracking scripts, sort attributes, collapse whitespace, normalize void/self-closing tags.</li>
+      <li><b>CSS:</b> sort selectors/properties, normalize number formats and color notation, remove redundant semicolons.</li>
+      <li><b>JavaScript:</b> apply consistent minification; enforce a stable quoting style; when safe, sort object keys in literals used as configuration.</li>
+      <li><b>JSON:</b> sort keys, unify whitespace, strip known transient fields (timestamps, nonces, per-request IDs) via a ruleset.</li>
+      <li><b>XML:</b> apply C14N canonicalization; drop insignificant whitespace nodes.</li>
+      <li><b>Media (images, fonts, videos):</b> compute content hash; reuse identical bytes across captures.</li>
+    </ul>
+
+    <figure class="figure">
+      <!-- Inline SVG: canonicalization before/after -->
+      <svg class="svgwrap" viewBox="0 0 980 200" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <style>
+            .box{fill:#0e0e0e;stroke:#252525;stroke-width:1.1;}
+            .lbl{fill:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;}
+            .arrow{stroke:#3a3a3a;stroke-width:2;marker-end:url(#m2);}
+          </style>
+          <marker id="m2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <polygon points="0 0, 10 3, 0 6" fill="#3a3a3a"/>
+          </marker>
+        </defs>
+        <rect x="20" y="25" width="420" height="150" rx="10" class="box"/>
+        <text x="35" y="55" class="lbl">HTML (raw)</text>
+        <text x="35" y="80" class="lbl">&lt;div class="hero"  data-id="123"&gt;</text>
+        <text x="35" y="100" class="lbl">   &lt;!-- comment --&gt;</text>
+        <text x="35" y="120" class="lbl">   &lt;a  href="/api/v1/users"&gt; Go &lt;/a&gt;</text>
+        <text x="35" y="140" class="lbl">&lt;/div&gt;</text>
+
+        <line x1="460" y1="100" x2="520" y2="100" class="arrow"/>
+
+        <rect x="520" y="25" width="420" height="150" rx="10" class="box"/>
+        <text x="535" y="55" class="lbl">HTML (normalized)</text>
+        <text x="535" y="80" class="lbl">&lt;div class="hero"&gt;&lt;a href="/api/v1/users"&gt;Go&lt;/a&gt;&lt;/div&gt;</text>
+      </svg>
+      <figcaption>Canonicalization removes noise and stabilizes structure. Hashes now reflect real changes.</figcaption>
+    </figure>
+
+    <h2>Noise reduction in headers</h2>
+    <p>
+      Volatile headers make identical content appear different and waste storage. In your normalized representation,
+      ignore values that change on every request (for example <code>Date</code>, transient <code>ETag</code>,
+      session <code>Set-Cookie</code>, and tracing IDs). Keep security-relevant headers (CSP, HSTS, X-Frame-Options,
+      Permissions-Policy), cache-control, and content type.
+    </p>
+    <p class="note">
+      The raw WARC still preserves everything exactly — stripping applies only to the normalized copy used for hashing,
+      deduplication, and diffing.
+    </p>
+
+    <h2>Delta storage for “almost the same” content</h2>
+    <p>
+      When a resource is similar but not identical — common with JS bundles and large JSON documents — store a base
+      version and record later versions as compact binary patches. This turns a “200 KB file with a two-line change”
+      into a tiny patch measured in kilobytes.
+    </p>
+
+    <figure class="figure">
+      <!-- Inline SVG: base + patch chain -->
+      <svg class="svgwrap" viewBox="0 0 980 210" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <style>
+            .blk{fill:#111;stroke:#2a2a2a;stroke-width:1.2;}
+            .txt{fill:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;}
+            .arrow{stroke:#3a3a3a;stroke-width:2;marker-end:url(#m3);}
+          </style>
+          <marker id="m3" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <polygon points="0 0, 10 3, 0 6" fill="#3a3a3a"/>
+          </marker>
+        </defs>
+        <rect x="40" y="30" width="200" height="60" rx="10" class="blk"/>
+        <text x="55" y="65" class="txt">BASE (normalized)</text>
+
+        <line x1="240" y1="60" x2="320" y2="60" class="arrow"/>
+        <rect x="320" y="30" width="200" height="60" rx="10" class="blk"/>
+        <text x="335" y="65" class="txt">PATCH #1 (~2.1 KB)</text>
+
+        <line x1="520" y1="60" x2="600" y2="60" class="arrow"/>
+        <rect x="600" y="30" width="200" height="60" rx="10" class="blk"/>
+        <text x="615" y="65" class="txt">PATCH #2 (~1.3 KB)</text>
+
+        <line x1="800" y1="60" x2="880" y2="60" class="arrow"/>
+        <rect x="880" y="30" width="60" height="60" rx="10" class="blk"/>
+        <text x="892" y="65" class="txt">…</text>
+
+        <text x="40" y="130" class="txt">Rebuild @T3 = BASE + PATCH #1 + PATCH #2</text>
+        <text x="40" y="150" class="txt">Cap chain length; rebase when it grows to keep reads fast.</text>
+      </svg>
+      <figcaption>Delta storage keeps later versions tiny. Rebase periodically to cap read cost.</figcaption>
+    </figure>
+
+    <h2>Indexing that answers questions fast</h2>
+    <p>
+      A compact CDXJ index maps each normalized URL and timestamp to its digests, WARC file name, and byte offset.
+      With that, you can retrieve a specific capture without scanning entire files. Store minimal metadata:
+      URL key, timestamp, raw digest, normalized digest, content type, payload size, and offsets.
+    </p>
+    <pre><code>com,example)/api/v1/users 20250815123000 sha256:norm:AAAA... sha256:raw:BBBB... application/json 2048
+com,example)/api/v1/users 20250815123500 sha256:norm:AAAA... sha256:raw:BBBB... application/json 2048   # revisit (identical)
+com,example)/api/v1/users 20250815124000 sha256:norm:ZZZZ... sha256:raw:CCCC... application/json 2072   # changed (delta)
+</code></pre>
+
+    <h2>Finding real change (without the false positives)</h2>
+    <p>
+      Change detection becomes predictable once content is canonicalized:
+    </p>
+    <ol>
+      <li><b>Hash check:</b> compare normalized digests; if equal, skip.</li>
+      <li><b>Structural comparison:</b> if the hash changed, compare DOM/AST/keys to confirm it’s not just trivia your normalizer should already handle.</li>
+      <li><b>Record delta:</b> if it’s a meaningful change, store a patch and record what changed and where.</li>
+    </ol>
+    <p>
+      You can also compute a similarity hash (e.g., SimHash) for quick screening. Near-identical documents with tiny visual differences
+      can be down-ranked or patched with extremely small deltas.
+    </p>
+
+    <h2>Storage math that justifies the work</h2>
+    <p>
+      On a target with ~150 URLs captured every few minutes, naive gzip’d WARCs can reach ~12 GB/week. After applying:
+      deduplication, header noise reduction, type-aware canonicalization, and delta storage, the same period shrinks to
+      roughly 0.8–1.6 GB/week — a 10× to 15× reduction — while keeping the ability to reconstruct any capture exactly.
+    </p>
+
+    <h2>What to keep raw vs. what to normalize</h2>
+    <ul>
+      <li><b>Keep raw forever:</b> original payload bytes and headers inside WARC “response” records (or “revisit” records pointing back to a prior payload).</li>
+      <li><b>Normalize for analysis:</b> derived copies used for hashing, dedup, and diffing. These are where headers like <code>Date</code> or session cookies are ignored.</li>
+    </ul>
+    <p>
+      This separation keeps legal/forensic integrity intact while allowing the analysis layer to stay compact and noise-free.
+    </p>
+
+    <h2>When to rebase patches</h2>
+    <p>
+      If you append too many patches to a base, reconstruction becomes slower. Keep a soft cap on chain length (for example, 10 patches),
+      or rebase when similarity drops below a threshold. The rebase creates a fresh base from the latest normalized body and starts a new chain.
+    </p>
+
+    <h2>Practical signals for bug bounty</h2>
+    <p>
+      Once storage is light and indexing is fast, the diff layer can focus on high-signal events:
+    </p>
+    <ul>
+      <li>New endpoints or parameters appearing in HTML, JS, or JSON manifests.</li>
+      <li>Status code transitions such as <code>404 → 200</code> or <code>401 → 200</code>.</li>
+      <li>Security header changes (CSP, HSTS, X-Frame-Options, Permissions-Policy).</li>
+      <li>OpenAPI / Swagger files added or expanded.</li>
+      <li>Subtle JavaScript changes that reveal feature rollouts or experimental flags.</li>
+    </ul>
+
+    <h2>References</h2>
+    <div class="refs">
+      <p>
+        • WARC File Format (ISO 28500): <a href="https://iipc.github.io/warc-specifications/" target="_blank" rel="noopener">iipc.github.io/warc-specifications</a><br/>
+        • Deduplication &amp; Revisit Records: <a href="https://iipc.github.io/warc-specifications/specifications/warc-deduplication/recording-arbitrary-duplicates-1.0/" target="_blank" rel="noopener">Recording Arbitrary Duplicates</a><br/>
+        • CDXJ Index Format: <a href="https://github.com/ikreymer/cdxj" target="_blank" rel="noopener">github.com/ikreymer/cdxj</a><br/>
+        • Zstandard: <a href="https://facebook.github.io/zstd/" target="_blank" rel="noopener">facebook.github.io/zstd</a><br/>
+        • bsdiff/bspatch: <a href="http://www.daemonology.net/bsdiff/" target="_blank" rel="noopener">daemonology.net/bsdiff</a><br/>
+        • SimHash (similarity hashing): <a href="https://en.wikipedia.org/wiki/SimHash" target="_blank" rel="noopener">wikipedia.org/wiki/SimHash</a>
+      </p>
+    </div>
+
+    <p>Bye.</p>
+  </main>
+
+  <div class="back-link">
+    <a href="index.html">← Back to posts</a>
+  </div>
+</body>
+</html>
