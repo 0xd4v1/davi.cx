@@ -1,5 +1,5 @@
 <script>
   const popup = window.open('', '_blank');
-  popup.opener.location.href = 'javascript:alert(1)';
+  popup.opener.location.href = 'javascript:console.log(document.cookie)';
   popup.close();
 </script>
