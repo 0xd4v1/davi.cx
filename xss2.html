@@ -1,5 +1,4 @@
 <script>
 var p = window.open('about:blank', '_blank');
-p.document.write('<script>window.opener.document.body.innerHTML += "<h1>XSS via Popup!</h1>";');
-p.document.write('window.opener.alert("XSS no Parent!"); window.close();<\/script>');
+p.document.write('<script>window.opener.document.body.innerHTML += "<h1>XSS via Popup!</h1>"; window.opener.alert("XSS no Parent!"); window.close();<\/script>');
 </script>
