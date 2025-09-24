@@ -1,0 +1,13 @@
+<script>
+try {
+    const popup = window.open('about:blank', '_blank');
+    if (popup) {
+        setTimeout(() => {
+            popup.opener.location.href = 'https://example.com';
+            popup.close();
+        }, 100);
+    }
+} catch (error) {
+    console.log('Blocked:', error);
+}
+</script>
