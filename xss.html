@@ -1,5 +1,5 @@
 <script>
-  console.log(1)
-  console.log("document cookies")
-  console.log(document.cookie)
+  var popup = window.open('about:blank', '_blank', 'width=1,height=1');
+  popup.document.write('<script>parent.document.body.style.background="red"; parent.alert("XSS! by bolabolabola")</script>');
+  popup.close();
 </script>
